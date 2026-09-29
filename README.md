@@ -1,0 +1,1 @@
+Current stack - mongodb/typegoose // typescript // langchain.js // 

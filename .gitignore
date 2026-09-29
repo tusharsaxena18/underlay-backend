@@ -1,0 +1,33 @@
+# Dependencies
+/node_modules
+.npm
+/dist
+/build
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and IDE Files
+.DS_Store
+*.sublime-workspace
+*.idea/
+.vscode/
+Thumbs.db
+
+# Optional: if you are using TypeScript or other compiled languages
+*.js.map
+/coverage
+.nyc_output
+
+# Optional: Yarn lock file (if using npm, you want to keep package-lock.json)
+# yarn.lock 
