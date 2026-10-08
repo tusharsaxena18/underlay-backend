@@ -6,12 +6,13 @@ The project also uses:
 - MongoDB
 - Mongoose
 - Typegoose
-- LangChain
+- LangChain.js
 - dotenv
-
+- zod - to enforce schema
 The backend contains an AI agent system, API routes, services, shared types, and database configuration.
+
 ---
-# Libraries / Current Stack
+#### Libraries / Current Stack
 - Runtime & Language
 Node.js — Backend runtime
 TypeScript 5.9 — Primary development language
@@ -25,7 +26,7 @@ LangChain 1.5 — LLM and AI agent orchestration
 use @LangchainDocs.md to learn about it
 
 ---
-# Project Structure
+### Project Structure
 ```text
 src/
 ├── agents/
@@ -43,7 +44,7 @@ src/
 └── server.ts
 ```
 
-## General Development Rules
+#### General Development Rules
 Before modifying the project:
 - Inspect the existing implementation.
 - Understand how the relevant module currently works.
