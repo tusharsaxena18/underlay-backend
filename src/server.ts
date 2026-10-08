@@ -12,7 +12,7 @@ dotenv.config();
 app.use(express.json());
 app.use("/api", mainRouter);
 
-// start up 
+// start up     
 const startServer = async () => {
     await connectDB();
 
