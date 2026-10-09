@@ -1,3 +1,4 @@
+// src\services\keyManager.ts
 export class GeminiKeyManager {
     private readonly keys: string[];
     private currentIndex = 0;
@@ -11,10 +12,11 @@ export class GeminiKeyManager {
     }
 
     getNextKey(): string {
-        const key = this.keys[this.currentIndex]!;
+        const index = this.currentIndex;
+        const key = this.keys[index]!;
 
         console.log(
-            `Using Gemini key ${this.currentIndex + 1}: ${key.slice(0, 6)}...${key.slice(-4)}`
+            `Using Gemini key ${index + 1}: ${key.slice(0, 6)}...${key.slice(-4)}`
         );
 
         this.currentIndex =
@@ -22,7 +24,6 @@ export class GeminiKeyManager {
 
         return key;
     }
-    
 
     get size(): number {
         return this.keys.length;

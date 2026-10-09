@@ -1,8 +1,8 @@
+// src\tests\test.ts
 import dotenv from "dotenv";
+import { createGeminiModel } from "../services/gemini";
 
 dotenv.config();
-
-import { createGeminiModel } from "../services/gemini";
 
 async function main() {
     const rootStart = performance.now();

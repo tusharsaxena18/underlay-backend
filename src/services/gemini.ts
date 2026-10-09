@@ -1,3 +1,16 @@
+// src\services\gemini.ts
+import {
+    BaseChatModel,
+    type BaseChatModelCallOptions,
+} from "@langchain/core/language_models/chat_models";
+import type {
+    BaseMessage,
+    AIMessageChunk,
+} from "@langchain/core/messages";
+import type {
+    ChatGenerationChunk,
+    ChatResult,
+} from "@langchain/core/outputs";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { GeminiKeyManager } from "./keyManager";
 
@@ -16,12 +29,31 @@ function loadGeminiKeys(): string[] {
 
 const geminiKeyManager = new GeminiKeyManager(loadGeminiKeys());
 
-export function createGeminiModel() {
-    const apiKey = geminiKeyManager.getNextKey();
+class RotatingGeminiModel extends BaseChatModel {
+    private readonly modelName = "gemini-3.8-flash";
+    private readonly temperature = 0.2;
 
-    return new ChatGoogleGenerativeAI({
-        model: "gemini-3.8-flash",
-        apiKey,
-        temperature: 0.2,
-    });
+    _llmType(): string {
+        return "rotating-gemini";
+    }
+
+    async _generate(
+        messages: BaseMessage[],
+        options: this["ParsedCallOptions"],
+        runManager?: any
+    ): Promise<ChatResult> {
+        const apiKey = geminiKeyManager.getNextKey();
+
+        const model = new ChatGoogleGenerativeAI({
+            model: this.modelName,
+            apiKey,
+            temperature: this.temperature,
+        });
+
+        return model._generate(messages, options, runManager);
+    }
+}
+
+export function createGeminiModel(): BaseChatModel {
+    return new RotatingGeminiModel({});
 }

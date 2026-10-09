@@ -26,6 +26,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "langchain": "^1.5.14",
-    "mongoose": "^9.1.6"
+    "mongoose": "^9.1.6",
+    "zod": "^4.6.5"
   }
 }

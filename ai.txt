@@ -1,0 +1,468 @@
+# AI Visibility Agent — All Tiers, No Hard Tools
+## Implementation Plan
+
+Version: 1.0
+Scope: All three tiers (1, 2, 3), 9 tools, no crawling/search infrastructure.
+Excludes: trace_sources, audit_consistency, detect_staleness.
+
+================================================================================
+1. SCOPE
+================================================================================
+
+IN:
+  - All three tiers (1, 2, 3)
+  - 9 tools
+  - One target provider to start (Gemini), add OpenAI/Anthropic later
+  - Competitor benchmarking (Tier 3)
+  - Longitudinal comparison (Tier 3, reuses persistence)
+  - Real MongoDB persistence
+  - Deterministic scoring with versioned weights
+
+OUT:
+  - Source tracing (trace_sources)
+  - Consistency audit (audit_consistency)
+  - Staleness detection (detect_staleness)
+
+WHAT YOU LOSE BY CUTTING THE HARD TOOLS:
+  - No "where did the AI get its info" — you only know what it said
+  - No "your website contradicts your G2 page"
+  - No "this claim is 8 months old" — only accuracy vs current ground truth
+
+This is a legitimate product: you measure WHAT AI says, not WHERE it came from.
+
+================================================================================
+2. THE 9 TOOLS
+================================================================================
+
+--------------------------------------------------------------------------------
+Tool 1 — validate_startup_input
+--------------------------------------------------------------------------------
+What: Zod-validates input, trims whitespace, dedupes competitors case-insensitively,
+      rejects blank fields and bad URLs, normalizes tier.
+Model: None (pure TypeScript).
+
+In:  { input: AIVisibilityInput }
+Out: { valid, normalized_input?, errors[] }
+
+Why: Cheap gate before spending API money. Runs first, always.
+
+--------------------------------------------------------------------------------
+Tool 2 — generate_queries
+--------------------------------------------------------------------------------
+What: Produces the tier-appropriate query battery from deterministic templates.
+Model: None for v1. Templates only. Optional main model for paraphrasing later.
+
+In:  { startup_name, icp, problem_statement, category, competitors, tier, max_queries? }
+Out: { queries: [{ query_id, query, query_type, target_startup, target_competitor? }], count }
+
+Query families:
+  - direct              "What does {startup} do?", "Who is {startup} for?"
+  - category_discovery  "What are the leading {category} tools for {icp}?"
+  - problem_solution    "What helps {icp} solve {problem_statement}?"
+  - competitive         "Compare {startup} vs {competitor} for {icp}"
+
+Tier behavior:
+  Tier 1: 8-10 queries, no competitor queries
+  Tier 2: 40-80 queries, no competitor queries
+  Tier 3: 40-80 startup queries + competitor sets (up to 3)
+
+Reproducibility: Stable query_id format (q_direct_1). Same input -> same output.
+Save the exact queries used with the run.
+
+--------------------------------------------------------------------------------
+Tool 3 — execute_ai_queries
+--------------------------------------------------------------------------------
+What: Sends each query to each target AI provider, returns raw response text +
+      metadata. Isolates per-provider failures.
+Model: None (calls target providers, not the agent's reasoning model).
+
+In:  { run_id, queries[], providers[], tier, max_concurrency?, timeout_ms? }
+Out: { results: [{ response_id, run_id, query_id, provider, status,
+                   response_text?, latency_ms?, error_code?, captured_at }],
+       provider_summary[] }
+
+Behavior:
+  - Bounded concurrency (start with 2-3, tune up)
+  - Per-provider timeout (30s default)
+  - Per-provider retry with backoff (max 2 retries)
+  - One provider failing = status:"error" on those items only; others continue
+  - Raw response text stored before any parsing
+  - Every Gemini call goes through shared GeminiKeyManager
+    -> key picked per request, never at model construction
+
+Providers to support (start order):
+  1. Gemini (already has key rotation)
+  2. OpenAI
+  3. Anthropic
+  4. Perplexity (has citations built in — nice to have)
+  5. Grok (optional, degrade gracefully)
+
+Do not build provider #4 until #1-3 work end-to-end.
+
+--------------------------------------------------------------------------------
+Tool 4 — parse_ai_response
+--------------------------------------------------------------------------------
+What: Extracts structured evidence from raw response text — mentions, position,
+      sentiment, framing, claims, citations (only ones the provider actually returned).
+Model: Yes. One fast model call per response with structured output (Zod-validated).
+
+In:  { startup_name, ground_truth,
+       responses: [{ response_id, provider, query_id, response_text, citations? }] }
+Out: { parsed: [{ response_id, provider, query_id, startup_mentioned, mention_count,
+                  first_mention_position, position_score, sentiment, framing,
+                  claims[], citations[], parse_confidence }],
+       errors[] }
+
+Key rules:
+  - startup_mentioned:false is NOT a parse failure — distinguish explicitly
+  - first_mention_position = paragraph index, 1-based (documented convention)
+  - position_score = deterministic mapping from position
+    (e.g. position 1 -> 1.0, position 2 -> 0.8, ...)
+  - Evidence quotes must be literal substrings of the response
+  - Validate output with Zod; retry once on malformed output, then mark as error
+  - Include ground_truth in the prompt; ask the model to output
+    matches_ground_truth: "yes"|"no"|"unknown" per claim
+    -> this is how you get accuracy without a separate tool
+
+Why ground truth goes here:
+  Folds the deferred cross_reference_ground_truth tool into the parser.
+  One LLM call does extraction + comparison.
+  In v2, split it out if you need finer control.
+
+--------------------------------------------------------------------------------
+Tool 5 — calculate_visibility_score
+--------------------------------------------------------------------------------
+What: Deterministic weighted composite of normalized component scores.
+      Renormalizes over available metrics.
+Model: None (pure TypeScript).
+
+In:  { mention_rate, avg_position_score, accuracy_score, sentiment_score,
+       competitive_fairness_score, tier }
+Out: { component_scores, weights_used, composite_visibility_score,
+       coverage, limitations[] }
+
+Weights (versioned — store version with every run):
+  mention_rate:           0.25
+  position:               0.20
+  accuracy:               0.25
+  sentiment:              0.15
+  competitive_fairness:   0.15
+
+Renormalization rules:
+  - Tier 1: no competitive fairness -> renormalize other 4 to sum to 1.0
+  - Tier 2: same as Tier 1 (no competitor benchmarking)
+  - Tier 3: all 5 weights apply
+  - If a metric is null due to insufficient data -> drop it, renormalize,
+    add a limitation string
+  - Clamp all inputs to 0..1
+  - Same inputs + same weight version -> same score, always
+
+coverage = fraction of weights that were available (e.g. 4/5 = 0.8)
+
+--------------------------------------------------------------------------------
+Tool 6 — benchmark_competitors  (Tier 3 only)
+--------------------------------------------------------------------------------
+What: Runs the same query battery against up to 3 competitors, parses those
+      responses, computes per-competitor metrics, compares to startup.
+Model: None of its own. Composes generate_queries (competitor mode),
+       execute_ai_queries, parse_ai_response, calculate_visibility_score.
+
+In:  { startup_name, competitors[], query_templates[], providers[], max_competitors? }
+Out: { competitors: [{ competitor_name, queries_attempted, mention_rate_by_model,
+                       average_position_score, sentiment_score,
+                       evidence_response_ids[] }],
+       relative_visibility: [{ competitor_name, startup_score,
+                               competitor_score, delta }],
+       status }
+
+Rules:
+  - Hard cap: 3 competitors
+  - Same query templates, same providers, same tier for startup and competitors
+    -> otherwise the comparison is invalid
+  - If a competitor's query set differs materially -> flag as limitation,
+    do not silently compare
+  - Failed competitor run -> status:"partial", do not fail the whole agent
+
+Why it works without extra infrastructure:
+  It is a loop over tools you already built, with the competitor name
+  substituted as target_startup.
+
+--------------------------------------------------------------------------------
+Tool 7 — persist_visibility_run
+--------------------------------------------------------------------------------
+What: Saves the run — input snapshot, raw response IDs, parsed result IDs,
+      final output, scoring version — to MongoDB.
+Model: None.
+
+In:  { run_id, startup_id, started_at, completed_at, input_snapshot,
+       raw_response_ids[], parsed_result_ids[], output, scoring_version }
+Out: { persisted, run_id, record_id?, error? }
+
+Rules:
+  - Use the app's existing Mongo data-access layer
+  - DB connection managed at app startup, NOT inside the tool
+  - Store raw response text in a separate collection; run doc holds references
+  - Persist partial runs as partial (do not discard evidence because one
+    provider failed)
+  - Always save input_snapshot and scoring_version
+    -> longitudinal comparison depends on both
+
+Collections:
+  - visibility_runs            one doc per run, references raw + parsed
+  - visibility_raw_responses   raw provider output, keyed by response_id
+  - visibility_parsed_results  parsed evidence, keyed by response_id
+
+--------------------------------------------------------------------------------
+Tool 8 — compare_longitudinal_runs  (Tier 3, optional but cheap)
+--------------------------------------------------------------------------------
+What: Compares the current run to the previous compatible run for the same startup.
+Model: None (pure arithmetic).
+
+In:  { startup_id, current_run_id, baseline_run_id?, lookback_runs? }
+Out: { baseline_run_id?, current_run_id, metric_deltas: Record<string, number|null>,
+       newly_appearing_flags[], resolved_flags[], summary_data[] }
+
+Rules:
+  - Only compare runs with the SAME scoring_version
+    -> mixing versions makes deltas meaningless
+  - Only compare runs with comparable provider/query coverage
+    -> flag if not
+  - Deltas are arithmetic — never ask an LLM to compute them
+  - No baseline exists -> return empty deltas, do not error
+
+Why it is cheap: Mongo query + subtraction. Persistence did the hard part.
+
+--------------------------------------------------------------------------------
+Tool 9 — assemble_report
+--------------------------------------------------------------------------------
+What: Final deterministic assembly — merges parser output, scoring output,
+      competitor output, longitudinal deltas, and flags into the validated
+      AIVisibilityOutput.
+Model: None. Pure TypeScript.
+
+In:  { run_id, startup_name, tier, parsed_results[], score_result,
+       competitor_result?, longitudinal_result?, provider_summary[] }
+Out: AIVisibilityOutput (validated against Zod)
+
+Why it is a separate tool:
+  - Keeps the agent's final step deterministic and testable
+  - Enforces the output contract in one place
+  - Computes confidence and source_type from evidence coverage,
+    not from an LLM guess
+
+Confidence formula (deterministic):
+  confidence = (
+      0.4 * provider_success_rate +
+      0.3 * parse_success_rate +
+      0.2 * ground_truth_completeness +
+      0.1 * query_coverage_vs_tier_target
+  )
+
+source_type:
+  - verified    ground truth complete, most metrics available
+  - mixed       some ground truth fields missing, or partial provider coverage
+  - unverified  minimal ground truth or widespread failures
+
+Limitations gathered from:
+  failed providers, missing metrics, skipped competitors,
+  partial parse rate, tier scope.
+
+================================================================================
+3. TIER BEHAVIOR
+================================================================================
+
+Tier 1 — Teaser
+  - 8-10 queries, 1 provider
+  - Direct + category_discovery only
+  - No competitor benchmarking
+  - No longitudinal
+  - Scoring: 4 metrics renormalized
+  - Expected confidence: 0.5-0.7
+
+Tier 2 — Full Audit
+  - 40-80 queries, 2-3 providers
+  - All query families except competitive
+  - No competitor benchmarking
+  - Saves first longitudinal snapshot (baseline for future Tier 3)
+  - Scoring: 4 metrics renormalized
+  - Expected confidence: 0.7-0.85
+
+Tier 3 — Competitive + Longitudinal
+  - 40-80 startup queries + competitor query sets (up to 3)
+  - All query families including competitive
+  - Competitor benchmarking enabled
+  - Longitudinal comparison against prior compatible run
+  - Scoring: all 5 metrics
+  - Expected confidence: 0.8-0.9
+
+Tier enforcement is IN CODE, not the prompt.
+A tool checks tier and rejects out-of-scope work.
+
+================================================================================
+4. ARCHITECTURE
+================================================================================
+
+FLOW:
+  validate_startup_input
+          |
+          v
+  generate_queries (tier-aware)
+          |
+          v
+  execute_ai_queries (multi-provider, bounded concurrency)
+          |
+          v
+  parse_ai_response (LLM extraction + GT comparison)
+          |
+          v
+  calculate_visibility_score (deterministic)
+          |
+          v
+  [if Tier 3] benchmark_competitors
+          |
+          v
+  [if Tier 3] compare_longitudinal_runs
+          |
+          v
+  assemble_report -> AIVisibilityOutput
+          |
+          v
+  persist_visibility_run
+
+ORCHESTRATION CHOICE FOR V1:
+  Use a plain sequential async function — runAIVisibilityAgent(input).
+  Call each tool in order, check status, branch on tier.
+
+  Do NOT use LangChain's agent loop for v1. Reasons:
+    - Deterministic pipeline > LLM-chosen tool order for a measurement system
+    - No risk of the agent skipping parse_ai_response or calling
+      calculate_visibility_score twice
+    - Easier to debug, test, and enforce budgets
+    - LangChain is still used for the model wrapper, structured output,
+      and Zod tool schemas
+
+  Wrap in the LangChain agent API in v2 if product needs it.
+  The tools are already callable either way.
+
+================================================================================
+5. BUILD ORDER
+================================================================================
+
+  #   Step                                                     Days   Depends on
+  --  ------------------------------------------------------   ----   ----------
+  0   Confirm LangChain versions, write Zod schemas,           1      —
+      wire GeminiKeyManager, verify rotation
+  1   validate_startup_input                                   0.5    Step 0
+  2   generate_queries (deterministic templates)               0.5    Step 1
+  3   execute_ai_queries — Gemini only, sequential             1      Step 2
+  4   parse_ai_response — LLM extraction + GT comparison       2      Step 3
+  5   calculate_visibility_score — pure function + tests       0.5    Step 4
+  6   assemble_report — output contract enforcement            0.5    Step 5
+  7   persist_visibility_run — Mongo collections               1      Step 6
+  8   End-to-end Tier 1 test                                   0.5    Step 7
+  9   Add OpenAI + Anthropic providers                         1-2    Step 8
+  10  Tier 2 (full query battery, multi-provider)              1      Step 9
+  11  benchmark_competitors                                    1.5    Step 10
+  12  compare_longitudinal_runs                                1      Step 11
+  13  Tier 3 end-to-end                                        0.5    Step 12
+  14  Budget caps, caching, retry hardening                    2      Step 13
+  15  Observability (structured logs, run traces)              1      Step 14
+
+  TOTAL: ~16-18 working days for one dev.
+
+  Fastest path to a working demo: steps 0-8 (~6 days) gets you a full Tier 1 run.
+
+================================================================================
+6. FILE LAYOUT
+================================================================================
+
+src/
+├── agents/
+│   └── aiVisibility/
+│       ├── agent.ts                         # runAIVisibilityAgent()
+│       ├── prompt.ts                        # extraction prompts
+│       ├── schemas.ts                       # Zod input/output
+│       └── tools/
+│           ├── validateStartupInput.ts
+│           ├── generateQueries.ts
+│           ├── executeAIQueries.ts
+│           ├── parseAIResponse.ts
+│           ├── calculateVisibilityScore.ts
+│           ├── benchmarkCompetitors.ts
+│           ├── compareLongitudinalRuns.ts
+│           ├── assembleReport.ts
+│           └── persistVisibilityRun.ts
+├── services/
+│   ├── gemini.ts                            # rotating provider wrapper
+│   ├── keyManager.ts                        # process-wide GeminiKeyManager
+│   ├── providers/
+│   │   ├── gemini.ts
+│   │   ├── openai.ts
+│   │   └── anthropic.ts
+│   └── persistence/
+│       └── visibilityRunRepository.ts
+├── types/
+│   └── schema.ts
+├── config/
+│   └── dbConn.ts
+└── server.ts
+
+No services/search/, no services/fetch/, no headless browser. Clean.
+
+================================================================================
+7. WHAT YOU GET AND WHAT YOU DON'T
+================================================================================
+
+YOU GET:
+  - "Gemini mentioned you in 6/10 queries at avg position 2.3 with positive sentiment"
+  - "OpenAI got your founding year wrong in 3 responses"
+  - "Your composite visibility score is 0.71, up from 0.64 last month"
+  - "You rank below Competitor A on mention rate but above on accuracy"
+  - Full audit trail: every metric traces to a response_id -> raw response text
+
+YOU DON'T GET:
+  - "Here's the URL the AI cited"                    (no trace_sources)
+  - "Your pricing page says X but G2 says Y"         (no audit_consistency)
+  - "This claim is 8 months old"                     (no detect_staleness)
+
+You can add all three later without rewriting anything — they are additive
+tools that hook into parse_ai_response output.
+
+Design AIVisibilityOutputSchema with source_trace and consistency_issues
+fields as .optional() from day one so adding them later is non-breaking.
+
+================================================================================
+8. ACCEPTANCE CRITERIA
+================================================================================
+
+  [ ] 9 tools, each independently unit-tested with typed input/output
+  [ ] One runAIVisibilityAgent(input) entry point, deterministic tool order
+  [ ] Gemini key rotation verified: N requests -> N distinct key indices,
+      round-robin, per request not per model construction
+  [ ] Tier limits enforced in code (query caps, competitor cap, tier-gated tools)
+  [ ] Provider failure -> status:"partial" on that item, other providers unaffected
+  [ ] Every metric traces to a response_id
+  [ ] Score deterministic given same inputs + same scoring_version
+  [ ] Output validates against AIVisibilityOutputSchema
+  [ ] Run persisted with input_snapshot + scoring_version for future
+      longitudinal comparison
+  [ ] Tier 3 deltas only computed against runs with matching scoring_version
+
+================================================================================
+9. BOTTOM LINE
+================================================================================
+
+Dropping the three hard tools cuts ~1 week of work, removes every external
+dependency except AI provider APIs and MongoDB, and eliminates the entire
+class of bugs that comes from crawling hostile web pages.
+
+You're left with: ask AI a bunch of questions, parse what it said,
+check it against truth, score it, compare to competitors and last month's run,
+save it.
+
+That's a shippable product with all three tiers.
+The three deferred tools can be bolted on later without touching the core.
+
+================================================================================
+END OF FILE
+================================================================================
