@@ -1,3 +1,4 @@
+// src\types\aiVisibility.ts
 import { AgentTier } from "../types/schema";
 
 interface AIVisibilityInput {
