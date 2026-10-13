@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test:ai-visibility": "node --require ts-node/register --test src/agents/aiVisibility/tools/generateQueries.test.ts src/agents/aiVisibility/tools/calculateVisibilityScore.test.ts src/agents/aiVisibility/tools/assembleReport.test.ts src/agents/aiVisibility/tools/executeAIQueries.test.ts src/agents/aiVisibility/tools/parseAIResponse.test.ts src/agents/aiVisibility/tools/persistVisibilityRun.test.ts src/services/persistence/visibilityRunRepository.test.ts",
+    "test:ai-visibility": "node --require dotenv/config --require ts-node/register --test src/agents/aiVisibility/tools/generateQueries.test.ts src/agents/aiVisibility/tools/calculateVisibilityScore.test.ts src/agents/aiVisibility/tools/assembleReport.test.ts src/agents/aiVisibility/tools/executeAIQueries.test.ts src/agents/aiVisibility/tools/parseAIResponse.test.ts src/agents/aiVisibility/tools/persistVisibilityRun.test.ts src/services/persistence/visibilityRunRepository.test.ts",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
     "typecheck": "tsc --noEmit"
   },

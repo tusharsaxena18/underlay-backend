@@ -48,13 +48,13 @@ export const ParsedClaimSchema = z.object({
 });
 
 export const ParsedResponseSchema = z.object({
-    startup_mentioned: z.boolean().optional().default(false),
-    mention_count: z.number().int().nonnegative().optional().default(0),
-    first_mention_position: z.number().int().positive().nullable().optional(),
-    sentiment: z.string().optional(),
-    framing: z.string().optional().default(""),
-    claims: z.array(ParsedClaimSchema).optional().default([]),
-    citations: z.array(z.string()).optional().default([]),
+    startup_mentioned: z.boolean(),
+    mention_count: z.number().int().nonnegative(),
+    first_mention_position: z.number().int().positive().nullable(),
+    sentiment: z.string(),
+    framing: z.string(),
+    claims: z.array(ParsedClaimSchema),
+    citations: z.array(z.string()),
 });
 
 export type ParsedResponse = z.infer<typeof ParsedResponseSchema>;
@@ -113,7 +113,7 @@ export function calculatePositionScore(position: number | null): number | null {
         return 0.55;
     }
 
-    return Math.max(0.1, 0.55 - (position - 4) * 0.1);
+    return Math.round(Math.max(0.1, 0.55 - (position - 4) * 0.1) * 100) / 100;
 }
 
 function normalizeText(value: string): string {
@@ -223,6 +223,12 @@ export async function parseAIResponse(
                 if (!normalized.success) {
                     retryNeeded = true;
                     attemptNumber += 1;
+                    if (attemptNumber >= 2) {
+                        errors.push({
+                            response_id: response.response_id,
+                            message: normalized.error.message,
+                        });
+                    }
                     continue;
                 }
 
