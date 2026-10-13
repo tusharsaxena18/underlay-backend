@@ -50,7 +50,24 @@ class RotatingGeminiModel extends BaseChatModel {
             temperature: this.temperature,
         });
 
-        return model._generate(messages, options, runManager);
+        const response = await model.invoke(messages as any);
+        const content = response?.content;
+        const text = typeof content === "string"
+            ? content
+            : Array.isArray(content)
+                ? content.map((item) => typeof item === "string" ? item : JSON.stringify(item)).join("")
+                : JSON.stringify(content ?? "");
+
+        return {
+            generations: [{
+                text,
+                message: response,
+                generationInfo: {},
+            }],
+            llmOutput: {
+                raw: response,
+            },
+        } as ChatResult;
     }
 }
 

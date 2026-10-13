@@ -1,9 +1,17 @@
 // src\types\schema.ts
 import { z } from "zod";
 
-export type AgentTier = 1 | 2 | 3;
+export type AgentTier = "1" | "2" | "3";
 
 const tierSchema = z.enum(["1", "2", "3"]);
+const tierInputSchema = z.union([
+    z.literal("1"),
+    z.literal("2"),
+    z.literal("3"),
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+]);
 
 export const AIVisibilityInputSchema = z.object({
     startup_name: z.string().trim().min(1),
@@ -18,7 +26,7 @@ export const AIVisibilityInputSchema = z.object({
         key_differentiators: z.array(z.string().trim().min(1)),
         current_stage: z.string().trim().min(1),
     }),
-    tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    tier: tierInputSchema,
 });
 
 export type AIVisibilityInput = z.infer<typeof AIVisibilityInputSchema>;
