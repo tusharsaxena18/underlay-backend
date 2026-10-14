@@ -1,4 +1,4 @@
-// src/agents/aiVisibility/aiVisibilityAgent.test.ts
+// src\agents\aiVisibility\aiVisibilityAgent.test.ts
 //
 // Integration-style tests for the AIVisibility agent pipeline.
 // All external I/O (LLM calls, DB writes) is replaced with stub tools so the
@@ -218,6 +218,14 @@ class ScriptedToolCallingModel extends BaseChatModel {
     }
 }
 
+function buildLangChainAgentOptions(input: AIVisibilityInput, queryCount: number): RunAIVisibilityAgentOptions {
+    return {
+        ...buildStubOptions(queryCount),
+        persist: false,
+        model: new ScriptedToolCallingModel(input),
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -256,7 +264,9 @@ test("LangChain agent invokes the pipeline tool and returns its validated output
 });
 
 test("agent returns a valid AIVisibilityOutput for a Tier 1 run", async () => {
-    const output = await runAIVisibilityAgent({ ...baseInput, tier: "1" }, buildStubOptions(3));
+    const input = { ...baseInput, tier: "1" as const };
+    const output = await runAIVisibilityAgentWithLangChain(input, buildLangChainAgentOptions(input, 3));
+    console.log(JSON.stringify(output, null, 2));
 
     // Top-level contract
     assert.equal(output.agent_name, "ai_visibility");
@@ -272,7 +282,9 @@ test("agent returns a valid AIVisibilityOutput for a Tier 1 run", async () => {
 });
 
 test("agent returns a valid AIVisibilityOutput for a Tier 2 run", async () => {
-    const output = await runAIVisibilityAgent({ ...baseInput, tier: "2" }, buildStubOptions(5));
+    const input = { ...baseInput, tier: "2" as const };
+    const output = await runAIVisibilityAgentWithLangChain(input, buildLangChainAgentOptions(input, 5));
+    console.log(JSON.stringify(output, null, 2));
 
     assert.equal(output.tier, "2");
     assert.ok(["success", "partial"].includes(output.status),
@@ -283,7 +295,9 @@ test("agent returns a valid AIVisibilityOutput for a Tier 2 run", async () => {
 });
 
 test("agent returns a valid AIVisibilityOutput for a Tier 3 run with competitors", async () => {
-    const output = await runAIVisibilityAgent({ ...baseInput, tier: "3" }, buildStubOptions(5));
+    const input = { ...baseInput, tier: "3" as const };
+    const output = await runAIVisibilityAgentWithLangChain(input, buildLangChainAgentOptions(input, 5));
+    console.log(JSON.stringify(output, null, 2));
 
     assert.equal(output.tier, "3");
     assert.ok(["success", "partial"].includes(output.status),
