@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { GeminiKeyManager } from "../../../services/keyManager";
+import { callGeminiProvider, createGeminiModel } from "../../../services/gemini";
 import { executeAIQueries } from "./executeAIQueries";
 
 function resetGeminiEnv() {
@@ -28,14 +29,6 @@ test("key rotation starts after construction and advances per request", async ()
     };
 
     try {
-        const geminiModulePath = require.resolve("../../../services/gemini");
-        delete require.cache[geminiModulePath];
-        const providerModulePath = require.resolve("../../../services/providers/gemini");
-        delete require.cache[providerModulePath];
-        const { createGeminiModel } = require("../../../services/gemini");
-        const { callGeminiProvider } = require("../../../services/providers/gemini") as {
-            callGeminiProvider: (prompt: string, options?: { timeoutMs?: number }) => Promise<{ text: string; citations?: string[]; latency_ms: number }>;
-        };
         const model = createGeminiModel();
         assert.deepEqual(sequence, []);
 
@@ -49,27 +42,17 @@ test("key rotation starts after construction and advances per request", async ()
     }
 });
 
-test("unimplemented providers are skipped and summary reflects partial success", async () => {
+test("rejects provider selections other than Gemini", async () => {
     const result = await executeAIQueries({
         run_id: "run_42",
-        queries: [
-            { query_id: "q1", query: "Who is Acme?", target_startup: "Acme" },
-            { query_id: "q2", query: "What does Acme do?", target_startup: "Acme" },
-        ],
-        providers: ["gemini", "openai"],
+        queries: [{ query_id: "q1", query: "Who is Acme?", target_startup: "Acme" }],
+        providers: ["openai"],
         tier: "1",
-        max_concurrency: 2,
-        timeout_ms: 2000,
     }, {
-        geminiProvider: async (prompt: string) => ({
-            text: `Gemini answer for ${prompt}`,
-            citations: ["https://example.com/gemini"],
-            latency_ms: 25,
-        }),
+        geminiProvider: async () => {
+            throw new Error("Gemini should not be called for invalid provider selection");
+        },
     });
 
-    assert.equal(result.results.filter((entry) => entry.status === "success").length, 2);
-    assert.equal(result.provider_summary.find((entry) => entry.provider === "gemini")?.succeeded, 2);
-    assert.equal(result.provider_summary.find((entry) => entry.provider === "openai")?.failed, 2);
-    assert.ok(result.results.some((entry) => entry.response_id.includes("openai_q1")));
+    assert.deepEqual(result, { results: [], provider_summary: [] });
 });

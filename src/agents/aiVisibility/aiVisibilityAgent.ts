@@ -13,8 +13,7 @@ import { calculateVisibilityScore } from "./tools/calculateVisibilityScore";
 import { assembleReport } from "./tools/assembleReport";
 import { benchmarkCompetitors, createBenchmarkCompetitorsTool } from "./tools/benchmarkCompetitors";
 import { compareLongitudinalRuns, createCompareLongitudinalRunsTool } from "./tools/compareLongitudinalRuns";
-import { createGeminiModel } from "../../services/gemini";
-import { callGeminiProvider } from "../../services/providers/gemini";
+import { callGeminiProvider, createGeminiModel } from "../../services/gemini";
 import { createValidateStartupInputTool } from "./tools/validateStartupInput";
 
 export type Logger = {
@@ -25,7 +24,6 @@ export type Logger = {
 
 export interface RunAIVisibilityAgentOptions {
     model?: BaseChatModel;
-    providers?: Array<"gemini" | "openai" | "anthropic">;
     maxConcurrency?: number;
     timeoutMs?: number;
     persist?: boolean;
@@ -167,7 +165,7 @@ export async function runAIVisibilityAgent(
         warn: () => undefined,
         error: () => undefined,
     };
-    const providers = options.providers ?? ["gemini"];
+    const providers: Array<"gemini"> = ["gemini"];
     const maxConcurrency = Math.max(1, options.maxConcurrency ?? 2);
     const timeoutMs = Math.max(1, options.timeoutMs ?? 30000);
     const persist = options.persist ?? true;

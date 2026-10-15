@@ -1,9 +1,7 @@
 // src\agents\aiVisibility\tools\executeAIQueries.ts
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { callGeminiProvider } from "../../../services/providers/gemini";
-
-const providerNameSchema = z.enum(["gemini", "openai", "anthropic"]);
+import { callGeminiProvider } from "../../../services/gemini";
 
 export const executeAIQueriesInputSchema = z.object({
     run_id: z.string().trim().min(1),
@@ -13,7 +11,7 @@ export const executeAIQueriesInputSchema = z.object({
         target_startup: z.string().trim().min(1),
         target_competitor: z.string().trim().optional(),
     })),
-    providers: z.array(providerNameSchema),
+    providers: z.array(z.literal("gemini")).min(1),
     tier: z.enum(["1", "2", "3"]),
     max_concurrency: z.number().int().positive().optional(),
     timeout_ms: z.number().int().positive().optional(),
@@ -172,7 +170,7 @@ export function createExecuteAIQueriesTool(deps: ExecuteAIQueriesDeps = {}) {
         async (input) => executeAIQueries(input, deps),
         {
             name: "execute_ai_queries",
-            description: "Run the AI visibility query battery against target providers and retain partial results per provider/query.",
+            description: "Run the AI visibility query battery against Gemini and retain partial results per query.",
             schema: executeAIQueriesInputSchema,
         },
     );

@@ -5,8 +5,6 @@ import type { ExecuteAIQueriesOutput } from "./executeAIQueries";
 import { executeAIQueries } from "./executeAIQueries";
 import { parseAIResponse } from "./parseAIResponse";
 
-const providerSchema = z.enum(["gemini", "openai", "anthropic"]);
-
 export const benchmarkCompetitorsInputSchema = z.object({
     run_id: z.string().trim().min(1),
     startup_name: z.string().trim().min(1),
@@ -16,7 +14,7 @@ export const benchmarkCompetitorsInputSchema = z.object({
         template: z.string().trim().min(1),
         query_type: z.string().trim().min(1),
     })),
-    providers: z.array(providerSchema),
+    providers: z.array(z.literal("gemini")).min(1),
     tier: z.enum(["1", "2", "3"]),
     ground_truth: AIVisibilityInputSchema.shape.ground_truth,
     max_competitors: z.number().int().min(1).max(3).optional(),

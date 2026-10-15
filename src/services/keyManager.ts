@@ -15,10 +15,6 @@ export class GeminiKeyManager {
         const index = this.currentIndex;
         const key = this.keys[index]!;
 
-        console.log(
-            `Using Gemini key ${index + 1}: ${key.slice(0, 6)}...${key.slice(-4)}`
-        );
-
         this.currentIndex =
             (this.currentIndex + 1) % this.keys.length;
 
