@@ -1,9 +1,16 @@
 
 
+
 import { GoogleGenAI } from '@google/genai';
-import { GeminiKeyManager } from '../../keyManager';
+import { GeminiKeyManager } from '../../../services/keyManager';
 
 const RETRYABLE_STATUSES = [429, 500, 503, 504];
+const NETWORK_CODES = ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT'];
+const isNetworkError = (err: any) =>
+  err?.status === undefined &&
+  (err?.message === 'fetch failed' ||
+    NETWORK_CODES.includes(err?.cause?.code) ||
+    NETWORK_CODES.includes(err?.code));
 
 export function safeParseJson(text: string): any | null {
   const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -25,6 +32,9 @@ export function safeParseJson(text: string): any | null {
  * Used by ingestion, field mapper, moat classifier and reasoning.
  * Uses the unchanged GeminiKeyManager for round-robin; cooldowns for keys that hit a 429
  * are tracked here, per key and per model.
+ *
+ * Latency tuning: only 2 attempts per model with short backoff, so an overloaded model costs
+ * about a second before the fallback model gets its turn.
  */
 export class GeminiClient {
   private keyManager: GeminiKeyManager;
@@ -47,8 +57,8 @@ export class GeminiClient {
     }
 
     this.keyManager = new GeminiKeyManager(envKeys);
-    this.models = [process.env.GEMINI_MODEL || 'gemini-3.8-flash', process.env.GEMINI_FALLBACK_MODEL || ''].filter(
-      Boolean
+    this.models = Array.from(
+      new Set([process.env.GEMINI_MODEL || 'gemini-3.8-flash', process.env.GEMINI_FALLBACK_MODEL || ''].filter(Boolean))
     );
   }
 
@@ -71,7 +81,7 @@ export class GeminiClient {
     parts: any[],
     config: Record<string, any> = {}
   ): Promise<{ text: string; model: string }> {
-    const maxAttempts = 4;
+    const maxAttempts = 2;
     let lastError: any;
 
     for (const model of this.models) {
@@ -89,7 +99,9 @@ export class GeminiClient {
             contents: [{ role: 'user', parts }],
             config,
           });
-          return { text: response.text || '', model };
+          // An empty answer from an overloaded model is treated as a transient failure.
+          if (!response.text) throw Object.assign(new Error('Empty response from model'), { status: 503 });
+          return { text: response.text, model };
         } catch (err: any) {
           lastError = err;
 
@@ -110,15 +122,15 @@ export class GeminiClient {
             continue;
           }
 
-          if (!RETRYABLE_STATUSES.includes(err?.status)) throw err;
+          if (!RETRYABLE_STATUSES.includes(err?.status) && !isNetworkError(err)) throw err;
           if (attempt === maxAttempts) {
             console.warn(`[${label}] ${model} still failing after ${maxAttempts} attempts.`);
             break;
           }
 
-          const delay = Math.min(1000 * 2 ** (attempt - 1), 15000) + Math.random() * 500;
+          const delay = Math.min(500 * 2 ** (attempt - 1), 4000) + Math.random() * 300;
           console.warn(
-            `[${label}] ${model} returned ${err.status} (attempt ${attempt}/${maxAttempts}), retrying in ${Math.round(delay)}ms`
+            `[${label}] ${model} returned ${err.status ?? 'a network error'} (attempt ${attempt}/${maxAttempts}), retrying in ${Math.round(delay)}ms`
           );
           await this.sleep(delay);
         }

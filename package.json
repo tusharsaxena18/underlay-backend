@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test:business-model": "node --require dotenv/config --require ts-node/register src/tests/test_agent.ts",
     "test:ai-visibility-tools": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.test.ts src/tests/aiVisibility/tools/generateQueries.test.ts src/tests/aiVisibility/tools/calculateVisibilityScore.test.ts src/tests/aiVisibility/tools/assembleReport.test.ts src/tests/aiVisibility/tools/benchmarkCompetitors.test.ts src/tests/aiVisibility/tools/compareLongitudinalRuns.test.ts src/tests/aiVisibility/tools/executeAIQueries.test.ts src/tests/aiVisibility/tools/parseAIResponse.test.ts src/tests/aiVisibility/tools/persistVisibilityRun.test.ts src/services/persistence/visibilityRunRepository.test.ts",
     "test:ai-visibility-agent": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.test.ts",
     "test:ai-visibility-live": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.live.test.ts",
