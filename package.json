@@ -4,8 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
+    "test:ai-visibility-tools": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.test.ts src/tests/aiVisibility/tools/generateQueries.test.ts src/tests/aiVisibility/tools/calculateVisibilityScore.test.ts src/tests/aiVisibility/tools/assembleReport.test.ts src/tests/aiVisibility/tools/benchmarkCompetitors.test.ts src/tests/aiVisibility/tools/compareLongitudinalRuns.test.ts src/tests/aiVisibility/tools/executeAIQueries.test.ts src/tests/aiVisibility/tools/parseAIResponse.test.ts src/tests/aiVisibility/tools/persistVisibilityRun.test.ts src/services/persistence/visibilityRunRepository.test.ts",
+    "test:ai-visibility-agent": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.test.ts",
+    "test:ai-visibility-live": "node --require dotenv/config --require ts-node/register --test src/tests/aiVisibility/aiVisibilityAgent.live.test.ts",
+    "test:gemini-connection": "node --require dotenv/config --require ts-node/register src/tests/geminiConnection.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
@@ -29,6 +31,7 @@
     "express": "^5.2.1",
     "langchain": "^1.5.14",
     "mongoose": "^9.1.6",
-    "pdf-parse-fork": "^1.2.0"
+    "pdf-parse-fork": "^1.2.0",
+    "zod": "^4.6.5"
   }
 }
