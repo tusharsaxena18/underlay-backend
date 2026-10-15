@@ -1,3 +1,4 @@
+// src\agents\aiVisibility\aiVisibilityAgent.live.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runAIVisibilityAgent } from "./aiVisibilityAgent";
@@ -37,10 +38,7 @@ for (const tier of ["1", "2", "3"] as const) {
                         if (typeof queryInput !== "object" || queryInput === null) {
                             throw new Error("Query generator received invalid input.");
                         }
-                        return generateQueries({
-                            ...queryInput,
-                            max_queries: 1,
-                        });
+                        return generateQueries(queryInput);
                     },
                 },
             },

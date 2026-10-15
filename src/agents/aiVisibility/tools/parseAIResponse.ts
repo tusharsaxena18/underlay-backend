@@ -50,7 +50,7 @@ export const ParsedClaimSchema = z.object({
 export const ParsedResponseSchema = z.object({
     startup_mentioned: z.boolean(),
     mention_count: z.number().int().nonnegative(),
-    first_mention_position: z.number().int().positive().nullable(),
+    first_mention_position: z.number().int().min(1).nullable(),
     sentiment: z.string(),
     framing: z.string(),
     claims: z.array(ParsedClaimSchema),

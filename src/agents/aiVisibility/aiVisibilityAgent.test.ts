@@ -142,6 +142,7 @@ function stubBenchmarkTool() {
         invoke: async () => ({
             competitors: [],
             relative_visibility: [],
+            competitive_fairness_score: 0.75,
             status: "success" as const,
             limitations: [],
         }),
@@ -279,6 +280,14 @@ test("agent returns a valid AIVisibilityOutput for a Tier 1 run", async () => {
     assert.ok(parsed.success, `Output did not match AIVisibilityOutputSchema: ${!parsed.success && parsed.error?.message}`);
 });
 
+test("confidence reflects available ground truth and emitted queries", async () => {
+    const output = await runAIVisibilityAgent({ ...baseInput, tier: "1" }, buildStubOptions(2));
+    const expectedConfidence = 0.4 + 0.3 + 0.2 * (5 / 7) + 0.1 * (2 / 3);
+
+    assert.equal(output.confidence, expectedConfidence);
+    assert.equal(output.scoring_details.coverage, 1);
+});
+
 test("agent returns a valid AIVisibilityOutput for a Tier 2 run", async () => {
     const input = { ...baseInput, tier: "2" as const };
     const output = await runAIVisibilityAgentWithLangChain(input, buildLangChainAgentOptions(input, 5));
@@ -298,6 +307,7 @@ test("agent returns a valid AIVisibilityOutput for a Tier 3 run with competitors
     assert.equal(output.tier, "3");
     assert.ok(["success", "partial"].includes(output.status),
         `Expected success or partial for Tier 3, got: ${output.status}`);
+    assert.equal(output.scoring_details?.component_scores.competitive_fairness_score, 0.75);
 
     const parsed = AIVisibilityOutputSchema.safeParse(output);
     assert.ok(parsed.success, `Tier 3 output validation failed: ${!parsed.success && parsed.error?.message}`);

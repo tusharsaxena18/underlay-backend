@@ -5,13 +5,13 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { createAgent } from "langchain";
 import { z } from "zod";
 import { AIVisibilityInputSchema, AIVisibilityOutputSchema, type AIVisibilityInput, type AIVisibilityOutput } from "../../types/schema";
-import { createGenerateQueriesTool, generateQueries } from "./tools/generateQueries";
+import { createGenerateQueriesTool, TIER_QUERY_LIMITS } from "./tools/generateQueries";
 import { createExecuteAIQueriesTool, executeAIQueries } from "./tools/executeAIQueries";
 import { createParseAIResponseTool, parseAIResponse } from "./tools/parseAIResponse";
 import { createPersistVisibilityRunTool, deriveStartupId } from "./tools/persistVisibilityRun";
 import { calculateVisibilityScore } from "./tools/calculateVisibilityScore";
 import { assembleReport } from "./tools/assembleReport";
-import { benchmarkCompetitors, createBenchmarkCompetitorsTool } from "./tools/benchmarkCompetitors";
+import { createBenchmarkCompetitorsTool } from "./tools/benchmarkCompetitors";
 import { compareLongitudinalRuns, createCompareLongitudinalRunsTool } from "./tools/compareLongitudinalRuns";
 import { callGeminiProvider, createGeminiModel } from "../../services/gemini";
 import { createValidateStartupInputTool } from "./tools/validateStartupInput";
@@ -46,6 +46,12 @@ function makeRunId(): string {
 }
 
 function blankMetrics() {
+    return {
+        mention_rate_by_model: {},
+    };
+}
+
+function blankScoringDetails() {
     return {
         component_scores: {
             mention_rate: null,
@@ -110,6 +116,7 @@ function makeFailedOutput(runId: string, startupName: string, tier: "1" | "2" | 
             source_trace: [],
             consistency_issues: [],
         },
+        scoring_details: blankScoringDetails(),
         confidence: 0,
         source_type: "unverified",
         sources_used: [],
@@ -197,7 +204,7 @@ export async function runAIVisibilityAgent(
             competitors: input.competitors,
             tier,
         });
-        const generatedQueriesResult = generatedQueryResult as { queries?: Array<{ query_id: string; query: string; target_startup: string; target_competitor?: string; }>; count?: number };
+        const generatedQueriesResult = generatedQueryResult as { queries?: Array<{ query_id: string; query: string; query_type?: string; target_startup: string; target_competitor?: string; }>; count?: number };
         if (!generatedQueriesResult.queries || generatedQueriesResult.queries.length === 0) {
             const failed = makeFailedOutput(runId, input.startup_name, tier, ["No queries were generated for the startup."], `No queries were generated for ${input.startup_name}.`);
             return failed;
@@ -253,7 +260,40 @@ export async function runAIVisibilityAgent(
             parse_confidence: entry.parse_confidence,
         }));
 
-        const mentionRate = successfulResults.length === 0 ? 0 : parsedResponses.filter((row) => row.startup_mentioned).length / successfulResults.length;
+        let benchmarkResult: {
+            competitors?: unknown[];
+            relative_visibility?: unknown[];
+            competitive_fairness_score?: number | null;
+            status?: string;
+            limitations?: string[];
+        } | undefined;
+        if (tier === "3" && input.competitors.length > 0) {
+            const benchmarkTemplates = queries
+                .filter((query) => query.query_type === "direct")
+                .slice(0, Math.min(3, TIER_QUERY_LIMITS[tier]))
+                .map((query) => ({
+                    query_id: query.query_id,
+                    template: query.query.split(input.startup_name).join("{startup_name}"),
+                    query_type: query.query_type ?? "direct",
+                }));
+            const benchmarkTool = options.tools?.benchmarkCompetitors ?? createBenchmarkCompetitorsTool({
+                executeAIQueries,
+                parseAIResponse,
+            });
+            benchmarkResult = await benchmarkTool.invoke({
+                run_id: runId,
+                startup_name: input.startup_name,
+                competitors: input.competitors,
+                query_templates: benchmarkTemplates,
+                providers,
+                tier: "3",
+                ground_truth: input.ground_truth,
+            }) as typeof benchmarkResult;
+        }
+
+        const mentionRate = parsedResponses.length === 0
+            ? 0
+            : parsedResponses.filter((row) => row.startup_mentioned).length / parsedResponses.length;
         const avgPositionScore = parsedResponses.length === 0
             ? null
             : (() => {
@@ -281,10 +321,28 @@ export async function runAIVisibilityAgent(
             avg_position_score: avgPositionScore,
             accuracy_score: accuracyScore,
             sentiment_score: sentimentScore,
-            competitive_fairness_score: tier === "3" ? (input.competitors.length > 0 ? 0.8 : null) : null,
+            competitive_fairness_score: tier === "3"
+                ? benchmarkResult?.competitive_fairness_score ?? null
+                : null,
             tier,
         };
-        const scoreResult = calculateVisibilityScore(scoreInput);
+        const calculatedScore = calculateVisibilityScore(scoreInput);
+        const scoreResult = calculatedScore && !("error" in calculatedScore)
+            ? calculatedScore
+            : {
+                component_scores: {
+                    mention_rate: mentionRate,
+                    avg_position_score: avgPositionScore,
+                    accuracy_score: accuracyScore,
+                    sentiment_score: sentimentScore,
+                    competitive_fairness_score: scoreInput.competitive_fairness_score,
+                },
+                weights_used: {},
+                composite_visibility_score: null,
+                coverage: 0,
+                scoring_version: "v1",
+                limitations: ["Unable to calculate visibility score"],
+            };
 
         const flags: Array<{ code: string; severity: "info" | "warning" | "critical"; message: string; evidence_ids?: string[] }> = [];
         if (providerSummary.some((provider) => provider.failed > 0)) {
@@ -303,6 +361,33 @@ export async function runAIVisibilityAgent(
                 evidence_ids: parseErrors.map((error) => error.response_id),
             });
         }
+        if (benchmarkResult?.status === "partial") {
+            flags.push({
+                code: "competitor_benchmark_partial",
+                severity: "warning",
+                message: "One or more competitor benchmarks were incomplete.",
+            });
+        }
+
+        const groundTruthFields = [
+            input.ground_truth.product_description,
+            input.ground_truth.pricing_model,
+            input.ground_truth.key_differentiators,
+            input.ground_truth.current_stage,
+            input.ground_truth.founding_year,
+            input.ground_truth.website_url,
+            input.ground_truth.last_verified_at,
+        ];
+        const groundTruthCompleteness =
+            groundTruthFields.filter((field) => field !== undefined).length /
+            groundTruthFields.length;
+        const startupQueryCount = queries.filter(
+            (query) => query.query_type !== "competitive",
+        ).length;
+        const queryCoverage = Math.min(
+            1,
+            startupQueryCount / TIER_QUERY_LIMITS[tier],
+        );
 
         const reportInput = {
             run_id: runId,
@@ -310,15 +395,17 @@ export async function runAIVisibilityAgent(
             tier,
             provider_summary: providerSummary,
             parsed_results: parsedRecords,
-            score_result: scoreResult && !("error" in scoreResult) ? scoreResult : { component_scores: { mention_rate: mentionRate, avg_position_score: avgPositionScore, accuracy_score: accuracyScore, sentiment_score: sentimentScore, competitive_fairness_score: tier === "3" ? (input.competitors.length > 0 ? 0.8 : null) : null }, weights_used: {}, composite_visibility_score: null, coverage: 0, scoring_version: "v1", limitations: ["Unable to calculate visibility score"] },
+            score_result: scoreResult,
             flags,
-            summary_override: `${input.startup_name} was evaluated across ${successfulResults.length} successful responses.`,
             limitations_extra: [
                 ...(providerSummary.some((provider) => provider.failed > 0) ? ["One or more provider queries failed during execution."] : []),
-                ...(parseErrors.length > 0 ? [`${parseErrors.length} responses failed parsing.`] : []),
+                ...(benchmarkResult?.limitations ?? []),
+                ...(tier === "3" && input.competitors.length === 0
+                    ? ["Competitive fairness score unavailable because the Tier 3 competitors list was empty."]
+                    : []),
             ],
-            ground_truth_completeness: 1,
-            query_coverage_vs_tier_target: 1,
+            ground_truth_completeness: groundTruthCompleteness,
+            query_coverage_vs_tier_target: queryCoverage,
         };
 
         const report = assembleReport(reportInput);
@@ -326,36 +413,7 @@ export async function runAIVisibilityAgent(
 
         let finalOutput = baseOutput;
 
-        if (tier === "3" && input.competitors.length > 0) {
-            const benchmarkTool = options.tools?.benchmarkCompetitors ?? createBenchmarkCompetitorsTool({
-                executeAIQueries,
-                parseAIResponse,
-            });
-            const benchmarkResult = await benchmarkTool.invoke({
-                run_id: runId,
-                startup_name: input.startup_name,
-                competitors: input.competitors,
-                query_templates: queries.map((query) => ({
-                    query_id: query.query_id,
-                    template: query.query,
-                    query_type: "direct",
-                })),
-                providers,
-                tier: "3",
-                ground_truth: input.ground_truth,
-            }) as { competitors?: unknown[]; relative_visibility?: unknown[]; status?: string; limitations?: string[] };
-            if (Array.isArray(benchmarkResult?.limitations) && benchmarkResult.limitations.length > 0) {
-                finalOutput.limitations = [...(finalOutput.limitations ?? []), ...benchmarkResult.limitations];
-            }
-            if (benchmarkResult?.status === "partial") {
-                finalOutput.status = "partial";
-                finalOutput.findings.flags.push({
-                    code: "competitor_benchmark_partial",
-                    severity: "warning",
-                    message: "One or more competitor benchmarks were incomplete.",
-                });
-            }
-        } else if (tier === "3" && input.competitors.length === 0) {
+        if (tier === "3" && input.competitors.length === 0) {
             finalOutput.limitations.push("Tier 3 competitors list was empty; benchmark_competitors was skipped.");
         }
 

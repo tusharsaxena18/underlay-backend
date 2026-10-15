@@ -1,3 +1,4 @@
+// src\agents\aiVisibility\tools\benchmarkCompetitors.ts
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { AIVisibilityInputSchema } from "../../../types/schema";
@@ -42,6 +43,7 @@ export interface BenchmarkCompetitorsOutput {
         competitor_score: number | null;
         delta: number | null;
     }>;
+    competitive_fairness_score: number | null;
     status: "success" | "partial" | "skipped";
     limitations?: string[];
 }
@@ -97,6 +99,7 @@ export async function benchmarkCompetitors(
         return {
             competitors: [],
             relative_visibility: [],
+            competitive_fairness_score: null,
             status: "skipped",
             limitations: [parsed.error.message],
         };
@@ -107,6 +110,7 @@ export async function benchmarkCompetitors(
         return {
             competitors: [],
             relative_visibility: [],
+            competitive_fairness_score: null,
             status: "skipped",
             limitations: ["benchmark_competitors is only available for Tier 3 runs"],
         };
@@ -129,6 +133,7 @@ export async function benchmarkCompetitors(
         return {
             competitors: [],
             relative_visibility: [],
+            competitive_fairness_score: null,
             status: "skipped",
             limitations: ["No competitors available for benchmarking"],
         };
@@ -173,6 +178,21 @@ export async function benchmarkCompetitors(
     const competitorResults: BenchmarkCompetitorResult[] = [];
     const relativeVisibility: Array<{ competitor_name: string; startup_score: number | null; competitor_score: number | null; delta: number | null; }> = [];
     let status: "success" | "partial" | "skipped" = "success";
+    const limitations: string[] = [];
+
+    if (
+        startupExecution.provider_summary.some((provider) => provider.failed > 0) ||
+        startupParse.errors.length > 0
+    ) {
+        status = "partial";
+        limitations.push("One or more startup benchmark responses failed or could not be parsed.");
+    }
+    if (startupScore === null) {
+        status = "partial";
+        limitations.push(
+            "Competitive fairness score unavailable because no startup benchmark responses parsed successfully.",
+        );
+    }
 
     for (const competitor of competitors) {
         const querySet = values.query_templates.map((template) => ({
@@ -218,6 +238,12 @@ export async function benchmarkCompetitors(
         if (execution.provider_summary.some((provider) => provider.failed > 0) || parsed.errors.length > 0) {
             status = "partial";
         }
+        if (parsedRows.length === 0) {
+            status = "partial";
+            limitations.push(
+                `Competitive fairness score unavailable for ${competitor} because no competitor responses parsed successfully.`,
+            );
+        }
 
         competitorResults.push({
             competitor_name: competitor,
@@ -236,10 +262,25 @@ export async function benchmarkCompetitors(
         });
     }
 
+    const comparableDeltas = relativeVisibility
+        .map((comparison) => comparison.delta)
+        .filter((delta): delta is number => delta !== null);
+    const competitiveFairnessScore = comparableDeltas.length === 0
+        ? null
+        : 1 - comparableDeltas.reduce((sum, delta) => sum + Math.abs(delta), 0) / comparableDeltas.length;
+
+    if (competitiveFairnessScore === null && limitations.length === 0) {
+        limitations.push(
+            "Competitive fairness score unavailable because no comparable startup and competitor parses succeeded.",
+        );
+    }
+
     return {
         competitors: competitorResults,
         relative_visibility: relativeVisibility,
+        competitive_fairness_score: competitiveFairnessScore,
         status,
+        ...(limitations.length > 0 ? { limitations } : {}),
     };
 }
 

@@ -22,27 +22,29 @@ export const AIVisibilityInputSchema = z.object({
     ground_truth: z.object({
         product_description: z.string().trim().min(1),
         pricing_model: z.string().trim().min(1),
-        founding_year: z.number().int().positive(),
+        founding_year: z.number().int().positive().optional(),
         key_differentiators: z.array(z.string().trim().min(1)),
         current_stage: z.string().trim().min(1),
+        website_url: z.url().optional(),
+        last_verified_at: z.iso.datetime().optional(),
     }),
     tier: tierInputSchema,
 });
 
 export type AIVisibilityInput = z.infer<typeof AIVisibilityInputSchema>;
 
-const componentScoresSchema = z.object({
-    mention_rate: z.number().nullable(),
-    avg_position_score: z.number().nullable(),
-    accuracy_score: z.number().nullable(),
-    sentiment_score: z.number().nullable(),
-    competitive_fairness_score: z.number().nullable(),
-});
-
 const visibilityMetricsSchema = z.object({
-    component_scores: componentScoresSchema,
+    mention_rate_by_model: z.record(z.string(), z.number().min(0).max(1)),
+    avg_position_score: z.number().min(0).max(1).optional(),
+    accuracy_score: z.number().min(0).max(1).optional(),
+    sentiment_score: z.number().min(0).max(1).optional(),
+    competitive_fairness_score: z.number().min(0).max(1).optional(),
+    composite_visibility_score: z.number().min(0).max(1).optional(),
+}).strict();
+
+const scoringDetailsSchema = z.object({
+    component_scores: z.record(z.string(), z.number().nullable()),
     weights_used: z.record(z.string(), z.number()),
-    composite_visibility_score: z.number().nullable(),
     coverage: z.number().min(0).max(1),
     scoring_version: z.string().min(1),
     limitations: z.array(z.string()),
@@ -64,9 +66,10 @@ export const AIVisibilityOutputSchema = z.object({
             message: z.string(),
             evidence_ids: z.array(z.string()).optional(),
         })),
-        source_trace: z.array(z.unknown()),
-        consistency_issues: z.array(z.unknown()),
+        source_trace: z.array(z.unknown()).optional(),
+        consistency_issues: z.array(z.unknown()).optional(),
     }),
+    scoring_details: scoringDetailsSchema,
     confidence: z.number().min(0).max(1),
     source_type: z.enum(["verified", "unverified", "mixed"]),
     sources_used: z.array(z.string()),

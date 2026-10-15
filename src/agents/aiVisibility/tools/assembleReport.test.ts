@@ -44,6 +44,10 @@ test("assembles and validates a successful report", () => {
     assert.equal(result.status, "success");
     assert.equal(result.source_type, "verified");
     assert.equal(result.confidence, 0.96);
+    assert.deepEqual(result.findings.metrics.mention_rate_by_model, { gemini: 0.5 });
+    assert.equal(result.findings.metrics.avg_position_score, 0.6);
+    assert.equal(result.findings.metrics.composite_visibility_score, scoreResult.composite_visibility_score);
+    assert.deepEqual(result.scoring_details?.component_scores, scoreResult.component_scores);
     assert.deepEqual(AIVisibilityOutputSchema.parse(result), result);
 });
 
@@ -75,6 +79,24 @@ test("provider failures and null metrics produce a partial report with limitatio
     assert.ok(result.limitations.some((limitation) => limitation.includes("accuracy_score")));
 });
 
+test("parse failures are surfaced and all failed parses are critical", () => {
+    const partial = assembleReport({
+        ...baseInput,
+        parsed_results: baseInput.parsed_results.slice(0, 1),
+    });
+    assert.ok("findings" in partial);
+    assert.equal(partial.status, "partial");
+    assert.equal(partial.findings.flags.find((flag) => flag.code === "parse_failed")?.severity, "warning");
+
+    const allFailed = assembleReport({
+        ...baseInput,
+        parsed_results: [],
+    });
+    assert.ok("findings" in allFailed);
+    assert.equal(allFailed.status, "partial");
+    assert.equal(allFailed.findings.flags.find((flag) => flag.code === "parse_failed")?.severity, "critical");
+});
+
 test("respects a verbatim summary override and lists only successful providers", () => {
     const result = assembleReport({
         ...baseInput,
@@ -89,26 +111,34 @@ test("respects a verbatim summary override and lists only successful providers",
     assert.deepEqual(result.sources_used, ["gemini"]);
 });
 
-test("generates a deterministic summary and defaults flags and confidence inputs", () => {
-    const { ground_truth_completeness: _groundTruth, query_coverage_vs_tier_target: _coverage, ...input } = baseInput;
-    const result = assembleReport(input);
+test("generates a deterministic summary and defaults flags", () => {
+    const result = assembleReport(baseInput);
     assert.ok("findings" in result);
     assert.equal(
         result.findings.summary,
         "Acme was mentioned in 1/2 successful responses across 1 provider(s). Composite visibility score: 0.6941176470588235.",
     );
     assert.deepEqual(result.findings.flags, []);
-    assert.ok(result.limitations.some((limitation) => limitation.includes("Default ground_truth_completeness")));
-    assert.ok(result.limitations.some((limitation) => limitation.includes("Default query_coverage_vs_tier_target")));
 });
 
-test("confidence is clamped and invalid inputs return structured errors", () => {
+test("uses singular grammar for one parsed response", () => {
+    const result = assembleReport({
+        ...baseInput,
+        provider_summary: [{ provider: "gemini", attempted: 1, succeeded: 1, failed: 0 }],
+        parsed_results: [baseInput.parsed_results[0]!],
+    });
+    assert.ok("findings" in result);
+    assert.match(result.findings.summary, /1\/1 successful response across/);
+});
+
+test("rejects out-of-range confidence inputs and invalid tiers", () => {
     const result = assembleReport({
         ...baseInput,
         ground_truth_completeness: 3,
         query_coverage_vs_tier_target: 5,
     });
-    assert.ok("findings" in result);
-    assert.equal(result.confidence, 1);
+    assert.ok("error" in result);
     assert.ok("error" in assembleReport({ ...baseInput, tier: "invalid" }));
+    const { ground_truth_completeness: _groundTruth, ...missingGroundTruth } = baseInput;
+    assert.ok("error" in assembleReport(missingGroundTruth));
 });

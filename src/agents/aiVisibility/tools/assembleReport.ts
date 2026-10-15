@@ -43,8 +43,8 @@ const assembleReportInputSchema = z.object({
     })).optional(),
     summary_override: z.string().optional(),
     limitations_extra: z.array(z.string()).optional(),
-    ground_truth_completeness: z.number().optional(),
-    query_coverage_vs_tier_target: z.number().optional(),
+    ground_truth_completeness: z.number().min(0).max(1),
+    query_coverage_vs_tier_target: z.number().min(0).max(1),
 });
 
 export type AssembleReportInput = z.infer<typeof assembleReportInputSchema>;
@@ -83,30 +83,54 @@ export function assembleReport(input: unknown): AIVisibilityOutput | ReturnType<
         0,
     );
     const providerSuccessRate =
-        totalAttempted === 0 ? 0 : totalSucceeded / totalAttempted;
+        totalAttempted === 0 ? 0 : clamp01(totalSucceeded / totalAttempted);
     const parseSuccessRate =
-        totalSucceeded === 0 ? 0 : values.parsed_results.length / totalSucceeded;
-    const groundTruthCompleteness =
-        values.ground_truth_completeness ?? 0.8;
-    const queryCoverage = values.query_coverage_vs_tier_target ?? 1;
+        totalSucceeded === 0
+            ? 0
+            : clamp01(values.parsed_results.length / totalSucceeded);
     const confidence = clamp01(
         0.4 * providerSuccessRate +
         0.3 * parseSuccessRate +
-        0.2 * groundTruthCompleteness +
-        0.1 * queryCoverage,
+        0.2 * values.ground_truth_completeness +
+        0.1 * values.query_coverage_vs_tier_target,
     );
+
+    const parseFailureCount = Math.max(
+        0,
+        totalSucceeded - values.parsed_results.length,
+    );
+    const flags = [...(values.flags ?? [])];
+    if (parseFailureCount > 0) {
+        const severity =
+            parseFailureCount === totalSucceeded ? "critical" : "warning";
+        const parseFailureFlag = flags.find((flag) => flag.code === "parse_failed");
+        if (parseFailureFlag) {
+            parseFailureFlag.severity = severity;
+            parseFailureFlag.message = `Failed to parse ${parseFailureCount} of ${totalSucceeded} successful response(s).`;
+        } else {
+            flags.push({
+                code: "parse_failed",
+                severity,
+                message: `Failed to parse ${parseFailureCount} of ${totalSucceeded} successful response(s).`,
+            });
+        }
+    }
 
     const applicableMetrics = Object.entries(values.score_result.component_scores).filter(
         ([metric]) => metric !== "competitive_fairness_score" || values.tier === "3",
     );
     const hasNullMetric = applicableMetrics.some(([, metric]) => metric === null);
+    const hasParseFailures = parseFailureCount > 0;
     const hasImperfectParse = values.parsed_results.some(
         (result) => result.parse_confidence < 1,
+    );
+    const hasWarningFlag = flags.some(
+        (flag) => flag.severity === "warning" || flag.severity === "critical",
     );
     const status =
         totalSucceeded === 0
             ? "failed"
-            : totalFailed > 0 || hasImperfectParse || hasNullMetric
+            : totalFailed > 0 || hasParseFailures || hasImperfectParse || hasNullMetric || hasWarningFlag
               ? "partial"
               : "success";
     const sourceType =
@@ -118,28 +142,43 @@ export function assembleReport(input: unknown): AIVisibilityOutput | ReturnType<
     const successfulProviders = values.provider_summary.filter(
         (provider) => provider.succeeded >= 1,
     );
+    const successfulResponseNoun =
+        values.parsed_results.length === 1 ? "response" : "responses";
     const summary =
         values.summary_override ??
         `${values.startup_name} was mentioned in ${
             values.parsed_results.filter((result) => result.startup_mentioned).length
-        }/${values.parsed_results.length} successful responses across ${
+        }/${values.parsed_results.length} successful ${successfulResponseNoun} across ${
             successfulProviders.length
         } provider(s). Composite visibility score: ${
             values.score_result.composite_visibility_score ?? "unavailable"
         }.`;
 
+    const providerMentionStats = new Map<string, { mentioned: number; parsed: number }>();
+    for (const result of values.parsed_results) {
+        const stats = providerMentionStats.get(result.provider) ?? { mentioned: 0, parsed: 0 };
+        stats.parsed += 1;
+        if (result.startup_mentioned) {
+            stats.mentioned += 1;
+        }
+        providerMentionStats.set(result.provider, stats);
+    }
+    const mentionRateByModel = Object.fromEntries(
+        Array.from(providerMentionStats, ([provider, stats]) => [
+            provider,
+            stats.mentioned / stats.parsed,
+        ]),
+    );
+
     const limitations = [
         ...values.score_result.limitations,
         ...(values.limitations_extra ?? []),
     ];
-    if (values.ground_truth_completeness === undefined) {
-        limitations.push("Default ground_truth_completeness (0.8) was used");
-    }
-    if (values.query_coverage_vs_tier_target === undefined) {
-        limitations.push("Default query_coverage_vs_tier_target (1.0) was used");
-    }
     if (totalFailed > 0) {
         limitations.push("One or more provider queries failed");
+    }
+    if (hasParseFailures) {
+        limitations.push(`${parseFailureCount} successful response(s) failed parsing`);
     }
     if (hasImperfectParse) {
         limitations.push("One or more parsed responses have incomplete confidence");
@@ -150,6 +189,7 @@ export function assembleReport(input: unknown): AIVisibilityOutput | ReturnType<
         }
     }
 
+    const componentScores = values.score_result.component_scores;
     const output = {
         agent_name: "ai_visibility" as const,
         status,
@@ -159,10 +199,34 @@ export function assembleReport(input: unknown): AIVisibilityOutput | ReturnType<
         generated_at: new Date().toISOString(),
         findings: {
             summary,
-            metrics: values.score_result,
-            flags: values.flags ?? [],
+            metrics: {
+                mention_rate_by_model: mentionRateByModel,
+                ...(componentScores.avg_position_score === null
+                    ? {}
+                    : { avg_position_score: componentScores.avg_position_score }),
+                ...(componentScores.accuracy_score === null
+                    ? {}
+                    : { accuracy_score: componentScores.accuracy_score }),
+                ...(componentScores.sentiment_score === null
+                    ? {}
+                    : { sentiment_score: componentScores.sentiment_score }),
+                ...(componentScores.competitive_fairness_score === null
+                    ? {}
+                    : { competitive_fairness_score: componentScores.competitive_fairness_score }),
+                ...(values.score_result.composite_visibility_score === null
+                    ? {}
+                    : { composite_visibility_score: values.score_result.composite_visibility_score }),
+            },
+            flags,
             source_trace: [],
             consistency_issues: [],
+        },
+        scoring_details: {
+            component_scores: componentScores,
+            weights_used: values.score_result.weights_used,
+            coverage: values.score_result.coverage,
+            scoring_version: values.score_result.scoring_version,
+            limitations: values.score_result.limitations,
         },
         confidence,
         source_type: sourceType,

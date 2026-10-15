@@ -1,3 +1,4 @@
+// src\agents\aiVisibility\tools\persistVisibilityRun.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -42,28 +43,35 @@ function makeValidInput(overrides: Partial<Record<string, unknown>> = {}) {
             findings: {
                 summary: "Acme Corp was surfaced in a positive response.",
                 metrics: {
-                    component_scores: {
-                        mention_rate: 1,
-                        avg_position_score: 0.85,
-                        accuracy_score: 1,
-                        sentiment_score: 1,
-                        competitive_fairness_score: 0.8,
-                    },
-                    weights_used: {
-                        mention_rate: 0.3,
-                        avg_position_score: 0.2,
-                        accuracy_score: 0.2,
-                        sentiment_score: 0.2,
-                        competitive_fairness_score: 0.1,
-                    },
+                    mention_rate_by_model: { gemini: 1 },
+                    avg_position_score: 0.85,
+                    accuracy_score: 1,
+                    sentiment_score: 1,
+                    competitive_fairness_score: 0.8,
                     composite_visibility_score: 0.9,
-                    coverage: 1,
-                    scoring_version: "v1",
-                    limitations: [],
                 },
                 flags: [],
                 source_trace: [],
                 consistency_issues: [],
+            },
+            scoring_details: {
+                component_scores: {
+                    mention_rate: 1,
+                    avg_position_score: 0.85,
+                    accuracy_score: 1,
+                    sentiment_score: 1,
+                    competitive_fairness_score: 0.8,
+                },
+                weights_used: {
+                    mention_rate: 0.3,
+                    avg_position_score: 0.2,
+                    accuracy_score: 0.2,
+                    sentiment_score: 0.2,
+                    competitive_fairness_score: 0.1,
+                },
+                coverage: 1,
+                scoring_version: "v1",
+                limitations: [],
             },
             confidence: 0.9,
             source_type: "verified",

@@ -1,3 +1,4 @@
+// src\agents\aiVisibility\tools\compareLongitudinalRuns.ts
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { AIVisibilityOutput } from "../../../types/schema";
@@ -7,17 +8,12 @@ const comparisonRunOutputSchema = z.object({
     run_id: z.string().trim().min(1),
     scoring_version: z.string().trim().min(1),
     findings: z.object({
-        metrics: z.object({
-            component_scores: z.record(z.string(), z.union([z.number(), z.null()])),
-            composite_visibility_score: z.number().nullable(),
-            coverage: z.number().nullable(),
-            scoring_version: z.string().trim().min(1),
-            limitations: z.array(z.string()),
-        }),
+        metrics: z.record(z.string(), z.unknown()),
         flags: z.array(z.object({
             code: z.string().trim().min(1),
         })).default([]),
     }).passthrough(),
+    scoring_details: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 export const compareLongitudinalRunsInputSchema = z.object({
@@ -139,8 +135,18 @@ export async function compareLongitudinalRuns(
         };
     }
 
-    const previousMetrics = flattenMetricValues(baselineOutput.findings.metrics as Record<string, unknown>);
-    const currentMetrics = flattenMetricValues(values.current_output.findings.metrics as Record<string, unknown>);
+    const previousMetrics = flattenMetricValues({
+        ...baselineOutput.findings.metrics,
+        ...(baselineOutput.scoring_details
+            ? { scoring_details: baselineOutput.scoring_details }
+            : {}),
+    } as Record<string, unknown>);
+    const currentMetrics = flattenMetricValues({
+        ...values.current_output.findings.metrics,
+        ...(values.current_output.scoring_details
+            ? { scoring_details: values.current_output.scoring_details }
+            : {}),
+    } as Record<string, unknown>);
     const metricNames = new Set([...Object.keys(previousMetrics), ...Object.keys(currentMetrics)]);
 
     const metricDeltas: Record<string, number | null> = {};

@@ -4,7 +4,10 @@ import {
     type BaseChatModelCallOptions,
     type BindToolsInput,
 } from "@langchain/core/language_models/chat_models";
-import type { BaseLanguageModelInput } from "@langchain/core/language_models/base";
+import type {
+    BaseLanguageModelInput,
+    StructuredOutputMethodOptions,
+} from "@langchain/core/language_models/base";
 import type {
     BaseMessage,
     AIMessageChunk,
@@ -44,6 +47,9 @@ function getGeminiKeyManager(): GeminiKeyManager {
     return geminiKeyManager;
 }
 
+type GeminiStructuredOutputSchema =
+    Parameters<ChatGoogleGenerativeAI["withStructuredOutput"]>[0];
+
 class RotatingGeminiModel extends BaseChatModel {
     private readonly modelName = "gemini-3.1-flash-lite";
     private readonly temperature = 0.2;
@@ -65,6 +71,43 @@ class RotatingGeminiModel extends BaseChatModel {
             });
 
             return model.bindTools(tools, kwargs).invoke(input);
+        });
+    }
+
+    withStructuredOutput<RunOutput extends Record<string, any> = Record<string, any>>(
+        outputSchema: GeminiStructuredOutputSchema,
+        config?: StructuredOutputMethodOptions<false>,
+    ): Runnable<BaseLanguageModelInput, RunOutput>;
+    withStructuredOutput<RunOutput extends Record<string, any> = Record<string, any>>(
+        outputSchema: GeminiStructuredOutputSchema,
+        config: StructuredOutputMethodOptions<true>,
+    ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: RunOutput }>;
+    withStructuredOutput<RunOutput extends Record<string, any> = Record<string, any>>(
+        outputSchema: GeminiStructuredOutputSchema,
+        config?: StructuredOutputMethodOptions<boolean>,
+    ): Runnable<
+        BaseLanguageModelInput,
+        RunOutput | { raw: BaseMessage; parsed: RunOutput }
+    > {
+        return RunnableLambda.from(async (input: BaseLanguageModelInput) => {
+            const apiKey = getGeminiKeyManager().getNextKey();
+            const model = new ChatGoogleGenerativeAI({
+                model: this.modelName,
+                apiKey,
+                temperature: this.temperature,
+            });
+
+            if (config?.includeRaw === true) {
+                return model.withStructuredOutput<RunOutput>(outputSchema, {
+                    ...config,
+                    includeRaw: true,
+                }).invoke(input);
+            }
+
+            return model.withStructuredOutput<RunOutput>(outputSchema, {
+                ...config,
+                includeRaw: false,
+            }).invoke(input);
         });
     }
 
