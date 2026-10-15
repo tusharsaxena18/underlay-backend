@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI } from '@google/genai';
-import { GeminiKeyManager } from '../../keyManager';
+import { GeminiKeyManager } from '../../../services/keyManager';
 
 const RETRYABLE_STATUSES = [429, 500, 503, 504];
 

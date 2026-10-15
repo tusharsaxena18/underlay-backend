@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import path from 'path';
-import { BusinessModelAgent } from '../services/businessModel/businessModelAgent';
+import { BusinessModelAgent } from '../agents/businessModel/businessModelAgent';
 
 async function runAgentTest() {
   console.log('=========================================');
