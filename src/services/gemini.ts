@@ -45,7 +45,7 @@ function getGeminiKeyManager(): GeminiKeyManager {
 }
 
 class RotatingGeminiModel extends BaseChatModel {
-    private readonly modelName = "gemini-3.6-flash";
+    private readonly modelName = "gemini-3.1-flash-lite";
     private readonly temperature = 0.2;
 
     _llmType(): string {
