@@ -1,8 +1,8 @@
-// src\agents\aiVisibility\tools\compareLongitudinalRuns.test.ts
+// src\tests\aiVisibility\tools\compareLongitudinalRuns.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AIVisibilityOutput } from "../../../types/schema";
-import { compareLongitudinalRuns } from "./compareLongitudinalRuns";
+import { compareLongitudinalRuns } from "../../../agents/aiVisibility/tools/compareLongitudinalRuns";
 
 function makeOutput(runId: string, mentionRate: number, modelMentionRate: number): AIVisibilityOutput {
     return {

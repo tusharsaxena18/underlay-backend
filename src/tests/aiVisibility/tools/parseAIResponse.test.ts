@@ -1,4 +1,4 @@
-// src\agents\aiVisibility\tools\parseAIResponse.test.ts
+// src\tests\aiVisibility\tools\parseAIResponse.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import { z } from "zod";
@@ -36,9 +36,9 @@ function loadParserModule() {
     process.env.GEMINI_KEY_3 = "k3";
     const geminiModulePath = require.resolve("../../../services/gemini");
     delete require.cache[geminiModulePath];
-    const parserModulePath = require.resolve("./parseAIResponse");
+    const parserModulePath = require.resolve("../../../agents/aiVisibility/tools/parseAIResponse");
     delete require.cache[parserModulePath];
-    return require("./parseAIResponse") as {
+    return require("../../../agents/aiVisibility/tools/parseAIResponse") as {
         calculatePositionScore: (position: number | null) => number | null;
         parseAIResponse: (...args: any[]) => Promise<any>;
         ParsedResponseSchema: { safeParse: (value: unknown) => { success: boolean } };

@@ -57,18 +57,20 @@ export interface CompareLongitudinalRunsOutput {
 function flattenMetricValues(metrics: Record<string, unknown>): Record<string, number | null> {
     const values: Record<string, number | null> = {};
 
-    for (const [key, value] of Object.entries(metrics)) {
+    function addMetricValue(path: string, value: unknown): void {
         if (typeof value === "number") {
-            values[key] = value;
-        } else if (value && typeof value === "object") {
-            for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-                if (typeof nestedValue === "number") {
-                    values[`${key}.${nestedKey}`] = nestedValue;
-                } else if (nestedValue === null) {
-                    values[`${key}.${nestedKey}`] = null;
-                }
+            values[path] = value;
+        } else if (value === null) {
+            values[path] = null;
+        } else if (value && typeof value === "object" && !Array.isArray(value)) {
+            for (const [nestedKey, nestedValue] of Object.entries(value)) {
+                addMetricValue(`${path}.${nestedKey}`, nestedValue);
             }
         }
+    }
+
+    for (const [key, value] of Object.entries(metrics)) {
+        addMetricValue(key, value);
     }
 
     return values;

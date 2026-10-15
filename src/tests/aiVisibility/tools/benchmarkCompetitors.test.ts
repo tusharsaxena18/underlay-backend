@@ -1,9 +1,9 @@
-// src\agents\aiVisibility\tools\benchmarkCompetitors.test.ts
+// src\tests\aiVisibility\tools\benchmarkCompetitors.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseAIResponseInputSchema } from "./parseAIResponse";
-import { benchmarkCompetitors } from "./benchmarkCompetitors";
-import { executeAIQueriesInputSchema } from "./executeAIQueries";
+import { parseAIResponseInputSchema } from "../../../agents/aiVisibility/tools/parseAIResponse";
+import { benchmarkCompetitors } from "../../../agents/aiVisibility/tools/benchmarkCompetitors";
+import { executeAIQueriesInputSchema } from "../../../agents/aiVisibility/tools/executeAIQueries";
 
 const benchmarkInput = {
     run_id: "run_1",

@@ -1,11 +1,11 @@
-// src\agents\aiVisibility\tools\generateQueries.test.ts
+// src\tests\aiVisibility\tools\generateQueries.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
     competitorSlug,
     generateQueries,
     TIER_QUERY_LIMITS,
-} from "./generateQueries";
+} from "../../../agents/aiVisibility/tools/generateQueries";
 
 const baseInput = {
     startup_name: " Acme   Labs ",

@@ -1,8 +1,8 @@
-// src\agents\aiVisibility\aiVisibilityAgent.live.test.ts
+// src\tests\aiVisibility\aiVisibilityAgent.live.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runAIVisibilityAgent } from "./aiVisibilityAgent";
-import { generateQueries } from "./tools/generateQueries";
+import { runAIVisibilityAgent } from "../../agents/aiVisibility/aiVisibilityAgent";
+import { generateQueries } from "../../agents/aiVisibility/tools/generateQueries";
 import type { AIVisibilityInput } from "../../types/schema";
 
 const baseInput: AIVisibilityInput = {

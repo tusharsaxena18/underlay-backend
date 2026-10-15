@@ -1,10 +1,10 @@
-// src\agents\aiVisibility\tools\executeAIQueries.test.ts
+// src\tests\aiVisibility\tools\executeAIQueries.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { GeminiKeyManager } from "../../../services/keyManager";
 import { callGeminiProvider, createGeminiModel } from "../../../services/gemini";
-import { executeAIQueries } from "./executeAIQueries";
+import { executeAIQueries } from "../../../agents/aiVisibility/tools/executeAIQueries";
 
 function resetGeminiEnv() {
     process.env.GEMINI_KEY_1 = "k1";

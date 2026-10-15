@@ -1,4 +1,4 @@
-// src\agents\aiVisibility\aiVisibilityAgent.test.ts
+// src\tests\aiVisibility\aiVisibilityAgent.test.ts
 //
 // Integration-style tests for the AIVisibility agent pipeline.
 // All external I/O (LLM calls, DB writes) is replaced with stub tools so the
@@ -14,7 +14,7 @@ import type { BaseChatModelCallOptions, BindToolsInput } from "@langchain/core/l
 import type { BaseLanguageModelInput } from "@langchain/core/language_models/base";
 import { RunnableLambda, type Runnable } from "@langchain/core/runnables";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { runAIVisibilityAgent, runAIVisibilityAgentWithLangChain, type RunAIVisibilityAgentOptions } from "./aiVisibilityAgent";
+import { runAIVisibilityAgent, runAIVisibilityAgentWithLangChain, type RunAIVisibilityAgentOptions } from "../../agents/aiVisibility/aiVisibilityAgent";
 import { AIVisibilityOutputSchema, type AIVisibilityInput } from "../../types/schema";
 
 // ---------------------------------------------------------------------------

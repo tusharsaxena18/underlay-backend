@@ -1,4 +1,4 @@
-// src\agents\aiVisibility\tools\persistVisibilityRun.test.ts
+// src\tests\aiVisibility\tools\persistVisibilityRun.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,7 +8,7 @@ import {
     deriveStartupId,
     persistVisibilityRun,
     persistVisibilityRunInputSchema,
-} from "./persistVisibilityRun";
+} from "../../../agents/aiVisibility/tools/persistVisibilityRun";
 
 function makeValidInput(overrides: Partial<Record<string, unknown>> = {}) {
     const base = {

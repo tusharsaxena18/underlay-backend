@@ -1,8 +1,8 @@
-// src\agents\aiVisibility\tools\assembleReport.test.ts
+// src\tests\aiVisibility\tools\assembleReport.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AIVisibilityOutputSchema } from "../../../types/schema";
-import { assembleReport } from "./assembleReport";
+import { assembleReport } from "../../../agents/aiVisibility/tools/assembleReport";
 
 const scoreResult = {
     component_scores: {

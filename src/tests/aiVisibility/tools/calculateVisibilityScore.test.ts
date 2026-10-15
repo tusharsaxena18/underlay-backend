@@ -1,10 +1,10 @@
-// src\agents\aiVisibility\tools\calculateVisibilityScore.test.ts
+// src\tests\aiVisibility\tools\calculateVisibilityScore.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
     calculateVisibilityScore,
     SCORING_VERSION,
-} from "./calculateVisibilityScore";
+} from "../../../agents/aiVisibility/tools/calculateVisibilityScore";
 
 const allScores = {
     mention_rate: 0.8,
