@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"langchain mcp": {
+			"url": "https://reference.langchain.com/mcp",
+			"type": "http"
+		}
+	}
+}
