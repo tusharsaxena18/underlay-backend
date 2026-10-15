@@ -1,3 +1,4 @@
+
 import { BenchmarkProvider, UnitEconomicsChain, buildRuleFlags, formatFlag } from './tools/Economics';
 import { IngestionService } from './tools/ingestion';
 
@@ -34,8 +35,9 @@ const metricOut = (m: ResolvedMetric): MetricOutput<number> => ({
 const emptyMetric = <T>(): MetricOutput<T> => ({ value: null, provenance: null, confidence: 0, source: 'not found' });
 
 /**
- * Business Model Agent: ingestion -> field mapping -> per-field unit-economics resolution
- * -> moat classification -> deterministic confidence -> structured output (shared subagent schema).
+ * Business Model Agent: ingestion -> (field mapping || moat classification) -> per-field unit-economics
+ * resolution -> deterministic flags -> narrative -> deterministic confidence -> structured output.
+ * The moat classifier runs in parallel with the field mapper; both only need the normalized document.
  */
 export class BusinessModelAgent {
   private ingestion = new IngestionService();
@@ -52,27 +54,31 @@ export class BusinessModelAgent {
       // 1. Ingestion + normalization (provenance-tagged)
       const doc = await this.ingestion.extractAndNormalize(input.document, trace);
 
-      // 2. Field mapping (explicitly stated values only)
+      // 2. Start moat classification in parallel (non-fatal: a failure resolves to null)
+      const moatPromise: Promise<MoatResult | null> = this.moatClassifier
+        .classify(doc, null, input, trace)
+        .catch((err: any) => {
+          console.error('[Agent] Moat classification failed:', err);
+          trace.log('moat', 'Classification failed', { error: err?.message || String(err) });
+          return null;
+        });
+
+      // 3. Field mapping (explicitly stated values only)
       const mapped = await this.mapper.mapFields(doc, input, trace);
 
-      // 3. Per-field resolution: extracted -> derived -> benchmark
+      // 4. Per-field resolution: extracted -> derived -> benchmark
       const { metrics, inputs } = this.chain.resolve(mapped, { sector: input.sector, stage: input.stage }, trace);
 
-      // 4. Moat classification (non-fatal)
-      let moat: MoatResult = EMPTY_MOAT;
-      let moatFailed = false;
-      try {
-        moat = await this.moatClassifier.classify(doc, mapped, input, trace);
-      } catch (err: any) {
-        moatFailed = true;
-        console.error('[Agent] Moat classification failed:', err);
-        trace.log('moat', 'Classification failed', { error: err?.message || String(err) });
-      }
+      // 5. Collect the moat result
+      const moatResult = await moatPromise;
+      const moatFailed = moatResult === null;
+      const moat: MoatResult = moatResult ?? EMPTY_MOAT;
 
-      // 5. Deterministic flags, then narrative (non-fatal)
+      // 6. Deterministic flags (a failed moat call must not be reported as "no moat"), then narrative (non-fatal)
       const ruleFlags = buildRuleFlags(metrics, inputs, mapped, moat).filter(
-  (f) => !(moatFailed && f.category === 'Moat Missing')
-);
+        (f) => !(moatFailed && f.category === 'Moat Missing')
+      );
+
       // A stated value that fails a realism check is "extracted" but not trustworthy.
       // Cap its confidence BEFORE the rollup so the overall score reflects it.
       if (ruleFlags.some((f) => f.category === 'Payback Realism')) {
@@ -89,8 +95,8 @@ export class BusinessModelAgent {
       try {
         const narrative = await this.reasoning.narrate(input, metrics, mapped, moat, ruleFlags);
         allFlags.push(
-  ...narrative.extraFlags.filter((f) => !(moatFailed && /moat|defensib|wrapper/i.test(f.category)))
-);
+          ...narrative.extraFlags.filter((f) => !(moatFailed && /moat|defensib|wrapper/i.test(f.category)))
+        );
         summary = narrative.summary;
       } catch (err: any) {
         narrativeFailed = true;
@@ -117,7 +123,7 @@ export class BusinessModelAgent {
       }
       allFlags.sort((a, b) => order[a.severity] - order[b.severity]);
 
-      // 6. Pricing and moat as output metrics
+      // 7. Pricing and moat as output metrics
       const pricing: MetricOutput<string> = mapped.pricingStrategy.value
         ? {
             value: mapped.pricingStrategy.value,
@@ -134,7 +140,7 @@ export class BusinessModelAgent {
         source: moat.source,
       };
 
-      // 7. Deterministic rollups
+      // 8. Deterministic rollups
       const anyMissing =
         Object.values(metrics).some((m) => m.value === null) || pricing.value === null;
 

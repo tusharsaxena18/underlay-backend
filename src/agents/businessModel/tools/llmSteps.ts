@@ -1,3 +1,5 @@
+
+
 import { getGeminiClient, GeminiClient } from './geminiClient';
 import { renderNormalizedDoc } from './ingestion';
 import {
@@ -90,6 +92,7 @@ export class FieldMapperService {
 
       Strict rules:
       - Report ONLY values the deck states explicitly. If a value is not written in the deck, set value to null. NEVER derive, estimate or guess here; derivation is done separately.
+      - Omit any field from the "fields" object entirely when its value is null (do not write empty entries). This keeps the answer short.
       - Decks use inconsistent terminology ("cost to acquire", "acquisition spend per user", "fee per evaluation"): match by meaning, not keywords.
       - All monetary values are plain numbers in full units in the deck's own currency (e.g. 1700000, not "17 Lakh"). Do not convert currencies.
       - Percentages are on a 0-100 scale.
@@ -105,7 +108,7 @@ ${FIELD_NAMES.map((n) => `      - ${n}: ${FIELD_HELP[n]}`).join('\n')}
       - "pricingStrategy": { "value": short description of how the product is priced (model + price points) or null, "slide": string|null, "evidence": string|null }
       - "moatEvidence": 1-3 sentences on what the deck ITSELF claims about defensibility (data, IP, integrations, partnerships, switching costs), or null if it says nothing.
 
-      Return ONLY JSON in this shape:
+      Return ONLY JSON in this shape (include only the fields the deck actually states):
       {
         "currency": "string",
         "pricingStrategy": { "value": string|null, "slide": string|null, "evidence": string|null },
@@ -201,9 +204,13 @@ export class MoatClassifier {
     this.gemini = getGeminiClient();
   }
 
+  /**
+   * `mapper` is optional: it only supplies a hint (what the deck says about defensibility).
+   * Pass null to run in parallel with the field mapper.
+   */
   public async classify(
     doc: NormalizedDoc,
-    mapper: MapperOutput,
+    mapper: MapperOutput | null,
     input: AgentInput,
     trace?: TraceLogger
   ): Promise<MoatResult> {
@@ -220,7 +227,7 @@ export class MoatClassifier {
       - "evidence" is a short paraphrase (max 25 words) of what in the deck supports the type.
       - "thinWrapperRisk": how easily could a generic frontier LLM plus a prompt/agent workflow replicate this product? "low" | "medium" | "high".
 
-      What the deck itself says about defensibility (from an earlier pass): ${mapper.moatEvidence ?? 'nothing stated'}
+      What the deck itself says about defensibility (from an earlier pass): ${mapper?.moatEvidence ?? 'nothing stated'}
 
       Return ONLY JSON:
       {
@@ -286,7 +293,13 @@ export class BusinessModelReasoningService {
   private describe(metrics: ResolvedMetrics) {
     const out: Record<string, any> = {};
     for (const [k, m] of Object.entries(metrics)) {
-      out[k] = { value: m.value, provenance: m.provenance, confidence: m.confidence, source: m.source };
+      out[k] = {
+        value: m.value,
+        provenance: m.provenance,
+        confidence: m.confidence,
+        source: m.source,
+        ...(m.notes.length ? { notes: m.notes } : {}),
+      };
     }
     return out;
   }
@@ -319,6 +332,7 @@ export class BusinessModelReasoningService {
       - Where you infer something the data does not state, phrase it as a question to verify, not as a fact.
       - Do not give an invest/pass verdict and do not give a numeric score.
       - Respect provenance: say plainly when a number is benchmarked or derived rather than stated.
+      - If a metric has "notes" (for example a failed realism check), say so plainly instead of presenting the number as reliable.
 
       Resolved metrics (currency: ${mapper.currency}):
       ${JSON.stringify(this.describe(metrics), null, 2)}
